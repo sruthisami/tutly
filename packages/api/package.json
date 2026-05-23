@@ -15,6 +15,10 @@
     "./lib/storage-locator": {
       "types": "./src/lib/storage-locator.ts",
       "default": "./src/lib/storage-locator.ts"
+    },
+    "./lib/template-policy": {
+      "types": "./src/lib/template-policy.ts",
+      "default": "./src/lib/template-policy.ts"
     }
   },
   "scripts": {
