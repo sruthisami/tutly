@@ -3,8 +3,6 @@ import { runJest } from "./jest-runner.js";
 import { logger } from "./logger.js";
 import { assembleWorkspace, cleanupWorkspace } from "./sandbox.js";
 
-const HIDDEN_PREFIX = "__hidden__/";
-
 export async function processJob(testRunId: string): Promise<void> {
   const log = logger.child({ testRunId });
   let cwd: string | undefined;
@@ -26,11 +24,11 @@ export async function processJob(testRunId: string): Promise<void> {
     });
     cwd = workspace.cwd;
 
-    log.info({ cwd }, "running jest");
+    log.info({ cwd }, "running browser tests");
     const outcome = await runJest(cwd);
 
     if (outcome.kind === "spawn-failed") {
-      log.error({ error: outcome.error }, "jest spawn failed");
+      log.error({ error: outcome.error }, "browser spawn failed");
       await postResults({
         testRunId,
         status: "ERROR",
@@ -40,7 +38,7 @@ export async function processJob(testRunId: string): Promise<void> {
     }
 
     if (outcome.kind === "timeout") {
-      log.warn("jest run timed out");
+      log.warn("browser run timed out");
       await postResults({
         testRunId,
         status: "ERROR",
@@ -50,62 +48,31 @@ export async function processJob(testRunId: string): Promise<void> {
     }
 
     if (outcome.kind === "oom") {
-      log.warn({ vmRss: outcome.vmRss }, "jest run hit memory cap");
+      log.warn("browser run hit memory cap");
       await postResults({
         testRunId,
         status: "ERROR",
-        errorMessage: `runner OOM (rss=${outcome.vmRss ?? "unknown"}kb)`,
+        errorMessage: "runner OOM",
       });
       return;
     }
 
-    if (!outcome.report) {
-      log.warn(
-        { exitCode: outcome.exitCode, stderr: outcome.stderrTail },
-        "no jest report",
-      );
-      await postResults({
-        testRunId,
-        status: "ERROR",
-        errorMessage:
-          outcome.stderrTail.slice(-1000) ||
-          `jest exited with code ${outcome.exitCode ?? "?"} but no report`,
-      });
-      return;
-    }
-
-    const results = outcome.report.testResults.map((t) => {
-      const visibility: "VISIBLE" | "HIDDEN" = t.filePath.includes(
-        HIDDEN_PREFIX,
-      )
-        ? "HIDDEN"
-        : "VISIBLE";
-      return {
-        title: t.fullName || t.title,
-        visibility,
-        passed: t.passed,
-        durationMs: Math.round(t.durationMs),
-        error: t.error,
-      };
-    });
-
-    const allPassed = results.length > 0 && results.every((r) => r.passed);
-    const status = allPassed ? "PASSED" : "FAILED";
-
+    const { report } = outcome;
     log.info(
       {
-        total: results.length,
-        passed: results.filter((r) => r.passed).length,
-        status,
+        total: report.results.length,
+        passed: report.results.filter((r) => r.passed).length,
+        status: report.status,
       },
-      "jest run complete",
+      "browser run complete",
     );
 
     await postResults({
       testRunId,
-      status,
-      results,
-      jestReport: outcome.report.raw,
+      status: report.status,
+      results: report.results,
+      jestReport: report.raw,
+      errorMessage: report.errorMessage,
     });
   } catch (err) {
     log.error({ err }, "job failed unexpectedly");

@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>tutly-browser-runner</title>
+  </head>
+  <body>
+    <iframe id="sandbox" style="width: 1px; height: 1px; border: 0"></iframe>
+    <script type="module">
+      import { loadSandpackClient } from "/sandpack-client.mjs";
+
+      const IN_PAGE_TIMEOUT_MS = 90_000;
+      window.__phase = "boot";
+
+      function finalize(payload) {
+        if (window.__results) return;
+        window.__phase = "finalized";
+        window.__results = payload;
+      }
+
+      try {
+        window.__phase = "fetching-manifest";
+        const manifest = await fetch("/manifest.json").then((r) => r.json());
+
+        window.__phase = "loading-client";
+        const iframe = document.getElementById("sandbox");
+        const client = await loadSandpackClient(
+          iframe,
+          {
+            files: manifest.files ?? {},
+            template: manifest.template ?? "vanilla",
+            ...(manifest.dependencies
+              ? { dependencies: manifest.dependencies }
+              : {}),
+            ...(manifest.customSetup
+              ? { customSetup: manifest.customSetup }
+              : {}),
+            ...(manifest.entry ? { entry: manifest.entry } : {}),
+          },
+          {
+            bundlerURL: `${window.location.origin}/sandpack/`,
+            showOpenInCodeSandbox: false,
+          },
+        );
+        window.__phase = "client-ready";
+
+        const testsByPath = {};
+        const fileErrors = [];
+
+        const unsubscribe = client.listen((msg) => {
+          if (msg.type !== "test") return;
+          if (msg.event === "add_file") {
+            testsByPath[msg.path] ??= [];
+          } else if (msg.event === "remove_file") {
+            delete testsByPath[msg.path];
+          } else if (msg.event === "file_error") {
+            fileErrors.push({
+              path: msg.path,
+              error: msg.error,
+            });
+          } else if (msg.event === "test_end") {
+            const path = msg.test.path;
+            testsByPath[path] ??= [];
+            const existing = testsByPath[path].findIndex(
+              (t) =>
+                t.name === msg.test.name &&
+                JSON.stringify(t.blocks) === JSON.stringify(msg.test.blocks),
+            );
+            if (existing >= 0) testsByPath[path][existing] = msg.test;
+            else testsByPath[path].push(msg.test);
+          } else if (msg.event === "total_test_end") {
+            unsubscribe();
+            finalize({ testsByPath, fileErrors });
+          }
+        });
+
+        setTimeout(() => {
+          unsubscribe();
+          finalize({
+            testsByPath,
+            fileErrors,
+            timedOut: true,
+          });
+        }, IN_PAGE_TIMEOUT_MS);
+
+        window.__phase = "waiting-for-bundler-done";
+        await new Promise((resolve) => {
+          const off = client.listen((msg) => {
+            if (msg.type === "done") {
+              off();
+              resolve();
+            }
+          });
+          setTimeout(() => {
+            off();
+            resolve();
+          }, 30000);
+        });
+
+        // Sandpack's bundler emits a first `initialize_tests`+`test_count`
+        // pass automatically when it discovers test files. Then it RE-emits
+        // `initialize_tests` and waits for an explicit `run-all-tests` dispatch
+        // before actually executing. Wait for that second init before firing.
+        window.__phase = "waiting-for-test-init";
+        await new Promise((resolve) => {
+          let inits = 0;
+          const off = client.listen((msg) => {
+            if (msg.type === "test" && msg.event === "initialize_tests") {
+              inits += 1;
+              if (inits >= 2) {
+                off();
+                resolve();
+              }
+            }
+          });
+          setTimeout(() => {
+            off();
+            resolve();
+          }, 15000);
+        });
+
+        window.__phase = "dispatching-run-all-tests";
+        client.dispatch({ type: "run-all-tests" });
+        window.__phase = "awaiting-results";
+      } catch (err) {
+        finalize({
+          testsByPath: {},
+          fileErrors: [],
+          bootError: String(err && err.stack ? err.stack : err),
+        });
+      }
+    </script>
+  </body>
+</html>

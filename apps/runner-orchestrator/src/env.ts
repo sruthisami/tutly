@@ -24,7 +24,7 @@ const schema = z.object({
     .transform((s) => Number(s)),
   JOB_MEMORY_MB: z
     .string()
-    .default("512")
+    .default("640")
     .transform((s) => Number(s)),
   JOB_CPU_LIMIT: z
     .string()
@@ -39,7 +39,9 @@ const schema = z.object({
     .string()
     .default("true")
     .transform((s) => s === "true" || s === "1"),
-  JEST_IMAGE: z.string().default("tutly-jest-runner:1"),
+  BROWSER_IMAGE: z
+    .string()
+    .default("ghcr.io/tutlylabs/tutly-browser-runner:latest"),
   // Host path the Docker daemon sees when bind-mounting WORK_DIR. Defaults to WORK_DIR.
   WORK_DIR_HOST: z.string().optional(),
 

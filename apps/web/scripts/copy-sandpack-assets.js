@@ -18,11 +18,19 @@ const webDir = join(__dirname, "..");
 const monorepoRoot = join(webDir, "../..");
 const repoParent = join(monorepoRoot, "..");
 
-const sourceWww = join(repoParent, "codesandbox-client/www");
+const candidates = [
+  process.env.SANDPACK_BUNDLER_SRC,
+  join(repoParent, "codesandbox-client/www"),
+  join(monorepoRoot, "codesandbox-client/www"),
+  join(monorepoRoot, "sandbox/www"),
+].filter(Boolean);
+
+const sourceWww = candidates.find((p) => existsSync(p));
 const targetDir = join(webDir, "public/sandpack");
 
-if (!existsSync(sourceWww)) {
+if (!sourceWww) {
   console.log("ℹ️  Sandpack bundler not found locally. Skipping copy.");
+  console.log("   Searched:", candidates.join(", "));
   process.exit(0);
 }
 

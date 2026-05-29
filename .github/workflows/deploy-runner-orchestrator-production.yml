@@ -1,6 +1,6 @@
 name: Deploy Runner Orchestrator to Production
 
-# Builds orchestrator + jest sandbox images from the same tag so they stay in sync.
+# Builds orchestrator + browser-runner images from the same tag so they stay in sync.
 
 on:
   push:
@@ -19,6 +19,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Checkout Sandpack fork
+        uses: actions/checkout@v4
+        with:
+          repository: TutlyLabs/sandbox
+          path: sandbox
+          token: ${{ secrets.SANDBOX_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Vendor Sandpack bundler into web/public
+        run: |
+          mkdir -p apps/web/public/sandpack
+          cp -a sandbox/www/. apps/web/public/sandpack/
+          du -sh apps/web/public/sandpack
+          ls apps/web/public/sandpack | head -5
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -29,26 +43,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Jest image metadata
-        id: meta-jest
+      - name: Browser runner image metadata
+        id: meta-browser
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/tutly-jest-runner
+          images: ghcr.io/${{ github.repository_owner }}/tutly-browser-runner
           tags: |
             type=sha,prefix=
             type=raw,value=latest
             type=match,pattern=runner-orchestrator@(.*),group=1
 
-      - name: Build and push Jest sandbox image
+      - name: Build and push browser runner image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/runner-orchestrator/Dockerfile.jest
+          file: apps/runner-orchestrator/Dockerfile.browser
           push: true
-          tags: ${{ steps.meta-jest.outputs.tags }}
-          labels: ${{ steps.meta-jest.outputs.labels }}
-          cache-from: type=gha,scope=jest
-          cache-to: type=gha,mode=max,scope=jest
+          tags: ${{ steps.meta-browser.outputs.tags }}
+          labels: ${{ steps.meta-browser.outputs.labels }}
+          cache-from: type=gha,scope=browser
+          cache-to: type=gha,mode=max,scope=browser
 
       - name: Orchestrator image metadata
         id: meta-orch
@@ -72,6 +86,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=orch
 
       - name: Deploy to Coolify
+        env:
+          COOLIFY_WEBHOOK_RUNNER_ORCHESTRATOR: ${{ secrets.COOLIFY_WEBHOOK_RUNNER_ORCHESTRATOR }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           RESPONSE=$(curl --request GET "${COOLIFY_WEBHOOK_RUNNER_ORCHESTRATOR}" \
             --header "Authorization: Bearer ${COOLIFY_TOKEN}" \
@@ -82,9 +99,5 @@ jobs:
             echo "Response: $RESPONSE"
           else
             echo "Deployment failed"
-            echo "Response: $RESPONSE"
             exit 1
           fi
-        env:
-          COOLIFY_WEBHOOK_RUNNER_ORCHESTRATOR: ${{ secrets.COOLIFY_WEBHOOK_RUNNER_ORCHESTRATOR }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}

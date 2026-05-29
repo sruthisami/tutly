@@ -1,0 +1,22 @@
+FROM mcr.microsoft.com/playwright:v1.60.0-noble
+
+WORKDIR /runtime
+
+COPY apps/runner-orchestrator/runtime/package.json ./package.json
+RUN npm install --omit=optional --no-audit --no-fund \
+  && npx --yes esbuild@0.24.0 \
+       node_modules/@codesandbox/sandpack-client/dist/index.mjs \
+       --bundle --format=esm --platform=browser \
+       --outfile=sandpack-client.bundle.mjs \
+  && npm prune --omit=dev \
+  && rm -rf /root/.npm
+
+COPY apps/runner-orchestrator/runtime/driver.mjs ./driver.mjs
+COPY apps/runner-orchestrator/runtime/index.html ./index.html
+COPY apps/web/public/sandpack ./sandpack
+
+ENV NODE_OPTIONS=--max-old-space-size=384
+ENV CI=1
+
+WORKDIR /work
+ENTRYPOINT ["node", "/runtime/driver.mjs"]
