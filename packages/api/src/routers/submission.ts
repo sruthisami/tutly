@@ -5,7 +5,7 @@ import type {
   submission,
   User,
 } from "@tutly/db/browser";
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -215,24 +215,24 @@ export const submissionRouter = createTRPCRouter({
           )
         : submittedRaw;
 
+      if (!locator) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Assignment is missing storage locator (org/course mapping).",
+        });
+      }
+
+      const submissionId = randomUUID();
+      await writeSubmission(locator, submissionId, submittedFiles);
+
       const submission = await ctx.db.submission.create({
         data: {
+          id: submissionId,
           attachmentId: input.assignmentDetails.id,
           enrolledUserId: enrolledUser.id,
           status: "SUBMITTED",
         },
       });
-
-      if (locator) {
-        try {
-          await writeSubmission(locator, submission.id, submittedFiles);
-        } catch (err) {
-          console.error("storage write failed for submission", {
-            submissionId: submission.id,
-            err,
-          });
-        }
-      }
 
       await ctx.db.events.create({
         data: {
