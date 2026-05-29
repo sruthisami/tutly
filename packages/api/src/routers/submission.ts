@@ -7,6 +7,7 @@ import type {
 } from "@tutly/db/browser";
 import { createHmac } from "node:crypto";
 
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import {
@@ -157,7 +158,10 @@ export const submissionRouter = createTRPCRouter({
       });
 
       if (submissions.length >= input.assignmentDetails.maxSubmissions) {
-        return { error: "Maximum submission limit reached" };
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Maximum submission limit reached",
+        });
       }
 
       const enrolledUser = await ctx.db.enrolledUsers.findUnique({
@@ -169,7 +173,12 @@ export const submissionRouter = createTRPCRouter({
           },
         },
       });
-      if (!enrolledUser) return { error: "Not enrolled" };
+      if (!enrolledUser) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not enrolled in this course",
+        });
+      }
 
       // Load template to validate the submission (no deletions allowed).
       const templateAttachment = await ctx.db.attachment.findUnique({
@@ -201,11 +210,12 @@ export const submissionRouter = createTRPCRouter({
       const submittedRaw = sandpackFilesToFilesMap(input.files);
       const missing = findDeletedTemplatePaths(submittedRaw, template);
       if (missing.length > 0) {
-        return {
-          error: `Cannot delete template files. Restore: ${missing
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Cannot delete template files. Restore: ${missing
             .slice(0, 5)
             .join(", ")}${missing.length > 5 ? "…" : ""}`,
-        };
+        });
       }
 
       // Drop hidden/solution paths before storing — server-side enforcement.
