@@ -1,12 +1,4 @@
-import { existsSync } from "node:fs";
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "./env.js";
@@ -80,21 +72,7 @@ export async function assembleWorkspace(opts: {
   const runId = path.basename(opts.testRunId).replace(/[^a-zA-Z0-9_-]/g, "");
   const cwd = path.resolve(env.WORK_DIR, `run-${runId}-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
-  // Jest container runs as uid 1000; allow it to write the symlink + report.
   await chmod(cwd, 0o777);
-
-  const targetModules = safeJoin(cwd, "node_modules");
-  const sourceModules = path.resolve(env.RUNTIME_DIR, "node_modules");
-  if (existsSync(sourceModules)) {
-    await symlink(sourceModules, targetModules, "dir").catch(() => undefined);
-  }
-
-  for (const file of ["jest.config.cjs", "tsconfig.json", "package.json"]) {
-    const src = path.resolve(env.RUNTIME_DIR, file);
-    if (existsSync(src)) {
-      await copyFile(src, safeJoin(cwd, file)).catch(() => undefined);
-    }
-  }
 
   const template = decodeTemplate(opts.sandboxTemplate);
   const templateFiles = template?.files ?? {};
@@ -106,33 +84,33 @@ export async function assembleWorkspace(opts: {
   const visibleTestPaths: string[] = [];
   const hiddenTestPaths: string[] = [];
 
-  const writeUntrusted = async (filePath: string, content: string) => {
-    let out: string;
+  // Order: template → student overlay → re-apply visible tests (anti-tamper) → hidden tests.
+  const merged: Record<string, string> = {};
+
+  const setMerged = (filePath: string, content: string): string | null => {
+    let safePath: string;
     try {
-      out = safeJoin(cwd, normalizePath(filePath));
+      safePath = sandpackPath(filePath);
     } catch {
       return null;
     }
-    await mkdir(path.dirname(out), { recursive: true });
-    await writeFile(out, content, "utf-8");
-    return out;
+    merged[safePath] = content;
+    return safePath;
   };
 
-  // Write order matters: template, then student overlay, then re-apply visible
-  // tests (so students can't disable them by editing), then hidden tests.
   for (const [filePath, entry] of Object.entries(templateFiles)) {
     if (typeof entry === "object" && entry.hidden === true) continue;
-    await writeUntrusted(filePath, fileContent(entry));
+    setMerged(filePath, fileContent(entry));
   }
 
   for (const [filePath, entry] of Object.entries(submissionFiles)) {
-    await writeUntrusted(filePath, fileContent(entry));
+    setMerged(filePath, fileContent(entry));
   }
 
   for (const [filePath, entry] of Object.entries(templateFiles)) {
     if (!TEST_FILE_REGEX.test(filePath)) continue;
     if (typeof entry === "object" && entry.hidden === true) continue;
-    const written = await writeUntrusted(filePath, fileContent(entry));
+    const written = setMerged(filePath, fileContent(entry));
     if (written) visibleTestPaths.push(normalizePath(filePath));
   }
 
@@ -140,13 +118,41 @@ export async function assembleWorkspace(opts: {
   for (const [filePath, source] of Object.entries(hidden)) {
     const normalized = normalizePath(filePath);
     const safePath = normalized.startsWith("__hidden__/")
-      ? normalized
-      : `__hidden__/${normalized}`;
-    const written = await writeUntrusted(safePath, source);
-    if (written) hiddenTestPaths.push(safePath);
+      ? `/${normalized}`
+      : `/__hidden__/${normalized}`;
+    merged[safePath] = source;
+    hiddenTestPaths.push(safePath.slice(1));
   }
 
+  for (const [sandpackKey, content] of Object.entries(merged)) {
+    const onDisk = safeJoin(cwd, sandpackKey.slice(1));
+    await mkdir(path.dirname(onDisk), { recursive: true });
+    await writeFile(onDisk, content, "utf-8");
+  }
+
+  const manifest = {
+    template: template?.template ?? "vanilla",
+    options: template?.options ?? undefined,
+    files: Object.fromEntries(
+      Object.entries(merged).map(([k, v]) => [k, { code: v }]),
+    ),
+  };
+  await writeFile(
+    safeJoin(cwd, "manifest.json"),
+    JSON.stringify(manifest),
+    "utf-8",
+  );
+
   return { cwd, visibleTestPaths, hiddenTestPaths };
+}
+
+function sandpackPath(filePath: string): string {
+  const norm = normalizePath(filePath);
+  // Reject traversal — sandpack accepts /-prefixed paths.
+  if (norm.includes("\0") || norm.split("/").some((seg) => seg === "..")) {
+    throw new Error(`invalid path: ${filePath}`);
+  }
+  return `/${norm}`;
 }
 
 export async function cleanupWorkspace(cwd: string): Promise<void> {

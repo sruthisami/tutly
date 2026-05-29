@@ -11,19 +11,19 @@ import { enqueue, getQueueSnapshot } from "./queue.js";
 
 function pullJestImage(): Promise<void> {
   return new Promise((resolve) => {
-    logger.info({ image: env.JEST_IMAGE }, "pulling jest image");
-    const child = spawn("docker", ["pull", env.JEST_IMAGE], { stdio: "pipe" });
+    logger.info({ image: env.BROWSER_IMAGE }, "pulling browser image");
+    const child = spawn("docker", ["pull", env.BROWSER_IMAGE], { stdio: "pipe" });
     let stderr = "";
     child.stderr?.on("data", (c: Buffer) => {
       stderr += c.toString();
     });
     child.on("exit", (code) => {
       if (code === 0) {
-        logger.info({ image: env.JEST_IMAGE }, "jest image pull complete");
+        logger.info({ image: env.BROWSER_IMAGE }, "browser image pull complete");
       } else {
         logger.warn(
-          { image: env.JEST_IMAGE, exitCode: code, stderr: stderr.slice(-400) },
-          "jest image pull failed; falling back to local cache",
+          { image: env.BROWSER_IMAGE, exitCode: code, stderr: stderr.slice(-400) },
+          "browser image pull failed; falling back to local cache",
         );
       }
       resolve();

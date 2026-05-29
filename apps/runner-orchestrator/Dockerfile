@@ -38,7 +38,7 @@ EXPOSE 3010
 ENV WORK_DIR=/tmp/tutly-runner
 ENV RUNTIME_DIR=/app/apps/runner-orchestrator/runtime
 ENV USE_DOCKER=true
-ENV JEST_IMAGE=ghcr.io/tutlylabs/tutly-jest-runner:latest
+ENV BROWSER_IMAGE=ghcr.io/tutlylabs/tutly-browser-runner:latest
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3010/health || exit 1

@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>tutly-browser-runner</title>
+  </head>
+  <body>
+    <iframe id="sandbox" style="width: 1px; height: 1px; border: 0"></iframe>
+    <script type="module">
+      import { loadSandpackClient } from "/sandpack-client.mjs";
+
+      const IN_PAGE_TIMEOUT_MS = 45_000;
+      window.__phase = "boot";
+
+      function finalize(payload) {
+        if (window.__results) return;
+        window.__phase = "finalized";
+        window.__results = payload;
+      }
+
+      const TEST_FILE_RE = /\.(test|spec)\.[tj]sx?$/;
+
+      try {
+        window.__phase = "fetching-manifest";
+        const manifest = await fetch("/manifest.json").then((r) => r.json());
+
+        const testFiles = Object.keys(manifest.files ?? {}).filter((p) =>
+          TEST_FILE_RE.test(p),
+        );
+        if (testFiles.length === 0) {
+          finalize({
+            testsByPath: {},
+            fileErrors: [],
+            noTestsInManifest: true,
+          });
+          throw new Error("__SHORT_CIRCUIT__");
+        }
+
+        window.__phase = "loading-client";
+        const iframe = document.getElementById("sandbox");
+        const client = await loadSandpackClient(
+          iframe,
+          {
+            files: manifest.files ?? {},
+            template: manifest.template ?? "vanilla",
+            ...(manifest.dependencies
+              ? { dependencies: manifest.dependencies }
+              : {}),
+            ...(manifest.customSetup
+              ? { customSetup: manifest.customSetup }
+              : {}),
+            ...(manifest.entry ? { entry: manifest.entry } : {}),
+          },
+          {
+            bundlerURL: `${window.location.origin}/sandpack/`,
+            showOpenInCodeSandbox: false,
+          },
+        );
+        window.__phase = "client-ready";
+
+        const testsByPath = {};
+        const fileErrors = [];
+        const bundlerErrors = [];
+
+        let bundlerDone = false;
+        let bundlerHadCompileError = false;
+        let testInitCount = 0;
+
+        const unsubscribe = client.listen((msg) => {
+          if (msg.type === "done") {
+            bundlerDone = true;
+            if (msg.compilatonError) bundlerHadCompileError = true;
+          } else if (msg.type === "action" && msg.action === "show-error") {
+            bundlerErrors.push({
+              path: msg.path ?? "(unknown)",
+              error: { message: msg.message ?? msg.title ?? "compile error" },
+            });
+          } else if (msg.type === "test") {
+            if (msg.event === "initialize_tests") {
+              testInitCount += 1;
+            } else if (msg.event === "add_file") {
+              testsByPath[msg.path] ??= [];
+            } else if (msg.event === "remove_file") {
+              delete testsByPath[msg.path];
+            } else if (msg.event === "file_error") {
+              fileErrors.push({ path: msg.path, error: msg.error });
+            } else if (msg.event === "test_end") {
+              const path = msg.test.path;
+              testsByPath[path] ??= [];
+              const i = testsByPath[path].findIndex(
+                (t) =>
+                  t.name === msg.test.name &&
+                  JSON.stringify(t.blocks) === JSON.stringify(msg.test.blocks),
+              );
+              if (i >= 0) testsByPath[path][i] = msg.test;
+              else testsByPath[path].push(msg.test);
+            } else if (msg.event === "total_test_end") {
+              unsubscribe();
+              finalize({ testsByPath, fileErrors });
+            }
+          }
+        });
+
+        setTimeout(() => {
+          unsubscribe();
+          finalize({
+            testsByPath,
+            fileErrors: fileErrors.length ? fileErrors : bundlerErrors,
+            timedOut: true,
+          });
+        }, IN_PAGE_TIMEOUT_MS);
+
+        window.__phase = "waiting-for-bundler-done";
+        await new Promise((resolve) => {
+          if (bundlerDone) return resolve();
+          const start = Date.now();
+          const tick = setInterval(() => {
+            if (bundlerDone || Date.now() - start > 20_000) {
+              clearInterval(tick);
+              resolve();
+            }
+          }, 100);
+        });
+
+        // Compile error => test runner never starts; finalize fast.
+        if (bundlerHadCompileError || bundlerErrors.length) {
+          unsubscribe();
+          finalize({
+            testsByPath: {},
+            fileErrors: bundlerErrors.length
+              ? bundlerErrors
+              : [
+                  {
+                    path: "(bundler)",
+                    error: {
+                      message:
+                        "bundler reported a compile error but did not provide details",
+                    },
+                  },
+                ],
+          });
+          throw new Error("__SHORT_CIRCUIT__");
+        }
+
+        // Sandpack emits initialize_tests twice; only the 2nd accepts run-all-tests.
+        window.__phase = "waiting-for-test-init";
+        await new Promise((resolve) => {
+          const start = Date.now();
+          const tick = setInterval(() => {
+            if (testInitCount >= 2 || Date.now() - start > 10_000) {
+              clearInterval(tick);
+              resolve();
+            }
+          }, 100);
+        });
+
+        window.__phase = "dispatching-run-all-tests";
+        client.dispatch({ type: "run-all-tests" });
+        window.__phase = "awaiting-results";
+      } catch (err) {
+        if (err && err.message === "__SHORT_CIRCUIT__") {
+          // already finalized
+        } else {
+          finalize({
+            testsByPath: {},
+            fileErrors: [],
+            bootError: String(err && err.stack ? err.stack : err),
+          });
+        }
+      }
+    </script>
+  </body>
+</html>
