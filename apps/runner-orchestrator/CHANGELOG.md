@@ -1,5 +1,11 @@
 # runner-orchestrator
 
+## 0.3.0
+
+### Minor Changes
+
+- [#121](https://github.com/TutlyLabs/Tutly/pull/121) [`68030af`](https://github.com/TutlyLabs/Tutly/commit/68030afa9d6820a19acb14f204236cadccff8db7) Thanks [@UdaySagar-Git](https://github.com/UdaySagar-Git)! - Replace the Jest + jsdom autoeval runner with a Playwright-driven container that boots the same Sandpack bundler the editor uses. Tests now execute byte-identically to what the student sees in the preview, eliminating the "passes in editor, fails in autoeval" class of bugs (structuredClone, fetch, spec-strict spread, jsdom shims, etc.). New image: `ghcr.io/tutlylabs/tutly-browser-runner`. Per-job memory bumped to 640 MB to fit Chromium + bundler + headroom.
+
 ## 0.2.1
 
 ### Patch Changes
