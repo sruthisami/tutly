@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { chromium } from "playwright";
 
 const STATIC_PORT = 8000;
@@ -9,6 +10,14 @@ const RUNTIME_DIR = "/runtime";
 const WORK_DIR = "/work";
 
 const app = express();
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
 app.use("/sandpack", express.static(`${RUNTIME_DIR}/sandpack`));
 app.get("/sandpack-client.mjs", (_req, res) =>
   res.sendFile(`${RUNTIME_DIR}/sandpack-client.bundle.mjs`),

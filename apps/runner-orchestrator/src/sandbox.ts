@@ -72,8 +72,6 @@ export async function assembleWorkspace(opts: {
   const runId = path.basename(opts.testRunId).replace(/[^a-zA-Z0-9_-]/g, "");
   const cwd = path.resolve(env.WORK_DIR, `run-${runId}-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
-  // The browser-runner container's driver runs as a non-root user and writes
-  // /work/results.json. Same chmod as before.
   await chmod(cwd, 0o777);
 
   const template = decodeTemplate(opts.sandboxTemplate);
@@ -86,9 +84,7 @@ export async function assembleWorkspace(opts: {
   const visibleTestPaths: string[] = [];
   const hiddenTestPaths: string[] = [];
 
-  // Build the merged file map the driver will hand to Sandpack. Order matters:
-  // template (visible only) → student overlay → re-apply template's visible
-  // tests (so students can't disable them) → hidden tests.
+  // Order: template → student overlay → re-apply visible tests (anti-tamper) → hidden tests.
   const merged: Record<string, string> = {};
 
   const setMerged = (filePath: string, content: string): string | null => {
@@ -128,7 +124,6 @@ export async function assembleWorkspace(opts: {
     hiddenTestPaths.push(safePath.slice(1));
   }
 
-  // Debug copy of files on disk + manifest the driver reads.
   for (const [sandpackKey, content] of Object.entries(merged)) {
     const onDisk = safeJoin(cwd, sandpackKey.slice(1));
     await mkdir(path.dirname(onDisk), { recursive: true });
