@@ -18,6 +18,7 @@ import {
 import { locatorFrom, locatorSelect } from "../lib/storage-locator";
 import {
   filterSubmissionInput,
+  isTemplateOnly,
   mergeForAudience,
   type SandpackTemplate,
 } from "../lib/template-policy";
@@ -114,15 +115,10 @@ function findDeletedTemplatePaths(
   const have = new Set(Object.keys(submitted));
   const deleted: string[] = [];
   for (const [path, entry] of Object.entries(files)) {
-    if (/^\/solution(\/|$)/i.test(path) || /\.solution\./i.test(path)) continue;
-    if (
-      typeof entry === "object" &&
-      entry !== null &&
-      "hidden" in entry &&
-      (entry as { hidden?: unknown }).hidden === true
-    ) {
-      continue;
-    }
+    const sf = typeof entry === "string" || (entry && typeof entry === "object")
+      ? (entry as Parameters<typeof isTemplateOnly>[1])
+      : undefined;
+    if (isTemplateOnly(path, sf)) continue;
     if (!have.has(path)) deleted.push(path);
   }
   return deleted;
