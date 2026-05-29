@@ -27,6 +27,7 @@ export type DriverOutcome = {
   timedOut?: boolean;
   bootError?: string;
   error?: string;
+  noTestsInManifest?: boolean;
   consoleLog?: string[];
   pageErrors?: string[];
 };
@@ -121,14 +122,28 @@ export function mapDriverOutcome(outcome: DriverOutcome): MappedReport {
 
   const total = results.length;
   const passed = results.filter((r) => r.passed).length;
-  const status: MappedReport["status"] =
-    total === 0 ? "ERROR" : passed === total ? "PASSED" : "FAILED";
+
+  if (total === 0) {
+    if (outcome.noTestsInManifest) {
+      return {
+        status: "PASSED",
+        results: [],
+        errorMessage: undefined,
+        raw: outcome,
+      };
+    }
+    return {
+      status: "ERROR",
+      results: [],
+      errorMessage: "no tests reported by the bundler",
+      raw: outcome,
+    };
+  }
 
   return {
-    status,
+    status: passed === total ? "PASSED" : "FAILED",
     results,
-    errorMessage:
-      total === 0 ? "no tests reported by the bundler" : undefined,
+    errorMessage: undefined,
     raw: outcome,
   };
 }

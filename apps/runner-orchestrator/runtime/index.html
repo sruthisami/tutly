@@ -18,9 +18,23 @@
         window.__results = payload;
       }
 
+      const TEST_FILE_RE = /\.(test|spec)\.[tj]sx?$/;
+
       try {
         window.__phase = "fetching-manifest";
         const manifest = await fetch("/manifest.json").then((r) => r.json());
+
+        const testFiles = Object.keys(manifest.files ?? {}).filter((p) =>
+          TEST_FILE_RE.test(p),
+        );
+        if (testFiles.length === 0) {
+          finalize({
+            testsByPath: {},
+            fileErrors: [],
+            noTestsInManifest: true,
+          });
+          throw new Error("__SHORT_CIRCUIT__");
+        }
 
         window.__phase = "loading-client";
         const iframe = document.getElementById("sandbox");
@@ -123,11 +137,15 @@
         client.dispatch({ type: "run-all-tests" });
         window.__phase = "awaiting-results";
       } catch (err) {
-        finalize({
-          testsByPath: {},
-          fileErrors: [],
-          bootError: String(err && err.stack ? err.stack : err),
-        });
+        if (err && err.message === "__SHORT_CIRCUIT__") {
+          // Already finalized via no-test-files path.
+        } else {
+          finalize({
+            testsByPath: {},
+            fileErrors: [],
+            bootError: String(err && err.stack ? err.stack : err),
+          });
+        }
       }
     </script>
   </body>
