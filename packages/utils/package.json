@@ -12,6 +12,10 @@
       "types": "./src/cn.ts",
       "default": "./src/cn.ts"
     },
+    "./codesandbox": {
+      "types": "./src/codesandbox.ts",
+      "default": "./src/codesandbox.ts"
+    },
     "./dayjs": {
       "types": "./src/dayjs.ts",
       "default": "./src/dayjs.ts"

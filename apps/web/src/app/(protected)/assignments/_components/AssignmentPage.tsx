@@ -44,6 +44,11 @@ import {
   TableRow,
 } from "@tutly/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@tutly/ui/tooltip";
+import {
+  CODESANDBOX_URL_EXAMPLE,
+  isCodeSandboxHost,
+  isValidCodeSandboxUrl,
+} from "@tutly/utils/codesandbox";
 import { useRouter, useSearchParams } from "next/navigation";
 import NewAttachmentPage from "@/app/(protected)/courses/class/_components/NewAssignments";
 import { api } from "@/trpc/react";
@@ -468,52 +473,14 @@ const StudentAssignmentSubmission = ({
       },
     });
 
-  const validateCodeSandboxLink = async (url: string): Promise<boolean> => {
-    try {
-      const sandboxIdMatch = url.match(
-        /codesandbox\.io\/(?:p\/(?:sandbox|devbox)\/|s\/)([a-zA-Z0-9-_]+)/,
-      );
-      if (!sandboxIdMatch) {
-        toast.error("Invalid CodeSandbox URL format");
-        return false;
-      }
-
-      const sandboxId = sandboxIdMatch[1];
-
-      // Check if sandbox is accessible (not private)
-      const response = await fetch(
-        `https://codesandbox.io/api/v1/sandboxes/${sandboxId}`,
-      );
-
-      if (response.status === 404) {
-        toast.error(
-          "CodeSandbox not found or is private. Please make it public or unlisted.",
-        );
-        return false;
-      }
-
-      if (!response.ok) {
-        toast.error("Unable to verify CodeSandbox accessibility");
-        return false;
-      }
-
-      const data = await response.json();
-
-      // Check if sandbox is private
-      if (data.privacy === 1) {
-        // 1 = private, 0 = public, 2 = unlisted
-        toast.error(
-          "CodeSandbox is private. Please make it public or unlisted before submitting.",
-        );
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      console.error("Error validating CodeSandbox link:", error);
-      toast.error("Error validating CodeSandbox link");
-      return false;
-    }
+  // Shape check only; codesandbox.io has no CORS headers, so the browser cannot
+  // verify reachability.
+  const validateCodeSandboxLink = (url: string): boolean => {
+    if (isValidCodeSandboxUrl(url)) return true;
+    toast.error(
+      `Invalid CodeSandbox URL. Copy the project link, for example ${CODESANDBOX_URL_EXAMPLE}`,
+    );
+    return false;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -526,18 +493,13 @@ const StudentAssignmentSubmission = ({
 
     let isCodeSandboxLink = false;
     try {
-      const host = new URL(externalLink).hostname.toLowerCase();
-      isCodeSandboxLink =
-        host === "codesandbox.io" || host.endsWith(".codesandbox.io");
+      isCodeSandboxLink = isCodeSandboxHost(new URL(externalLink).hostname);
     } catch {
       isCodeSandboxLink = false;
     }
 
-    if (isCodeSandboxLink) {
-      const isValid = await validateCodeSandboxLink(externalLink);
-      if (!isValid) {
-        return;
-      }
+    if (isCodeSandboxLink && !validateCodeSandboxLink(externalLink)) {
+      return;
     }
 
     try {
@@ -548,8 +510,8 @@ const StudentAssignmentSubmission = ({
         courseId,
       });
       setExternalLink("");
-    } catch (error) {
-      toast.error("Error submitting assignment");
+    } catch {
+      // onError already surfaces the message.
     }
   };
 
