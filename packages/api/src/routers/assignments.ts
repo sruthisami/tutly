@@ -1996,7 +1996,13 @@ export const assignmentsRouter = createTRPCRouter({
           (submission) => submission?.id === submissionId,
         );
         let hydratedSubmission = submission;
-        let assignmentWithTemplate = assignment;
+        // Stored as a JSON string, but the evaluate payload serves the merged
+        // template object so the client renders it without a second read.
+        type MergedAssignment = Partial<
+          Omit<NonNullable<typeof assignment>, "sandboxTemplate">
+        > & { sandboxTemplate: SandpackTemplate };
+        let assignmentWithTemplate: typeof assignment | MergedAssignment =
+          assignment;
 
         const submissionMode = assignment?.submissionMode;
         const isSandboxMode =
