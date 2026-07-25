@@ -1388,12 +1388,19 @@ export const assignmentsRouter = createTRPCRouter({
 
       const isInstructorScope = currentUser.role !== "STUDENT";
 
-      const submissionWhere = isInstructorScope
-        ? { status: "SUBMITTED" as const }
-        : {
-            status: "SUBMITTED" as const,
-            enrolledUser: { username: currentUser.username },
-          };
+      // Mentors only see their mentees' submissions, matching the detail page.
+      const submissionWhere =
+        currentUser.role === "STUDENT"
+          ? {
+              status: "SUBMITTED" as const,
+              enrolledUser: { username: currentUser.username },
+            }
+          : currentUser.role === "MENTOR"
+            ? {
+                status: "SUBMITTED" as const,
+                enrolledUser: { mentorUsername: currentUser.username },
+              }
+            : { status: "SUBMITTED" as const };
       const submissionSelect = isInstructorScope
         ? {
             id: true,
