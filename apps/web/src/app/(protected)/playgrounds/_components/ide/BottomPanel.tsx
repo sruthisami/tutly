@@ -13,7 +13,14 @@ import {
   Terminal as TerminalIcon,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { cn } from "@tutly/utils";
 
@@ -39,7 +46,7 @@ export default function BottomPanel({
   const { state, setBottomActive, toggleBottom, setBottomPosition } = useIDE();
   const collapsed = state.bottomPanel.collapsed;
   const position = state.bottomPanel.position;
-  const { sandpack, dispatch } = useSandpack();
+  const { sandpack } = useSandpack();
 
   const hasTestFiles = useMemo(
     () =>
@@ -53,13 +60,20 @@ export default function BottomPanel({
     "idle",
   );
   const [showTestDetails, setShowTestDetails] = useState(false);
+  const [runRequest, setRunRequest] = useState(0);
 
-  const runTests = () => {
+  const runTests = useCallback(() => {
     setTestStatus("running");
-    setTimeout(() => {
-      dispatch({ type: "run-all-tests" });
-    }, 200);
-  };
+    setRunRequest((request) => request + 1);
+  }, []);
+
+  const handleTestsComplete = useCallback(() => {
+    queueMicrotask(() => setTestStatus("complete"));
+  }, []);
+
+  const handleTestRunUnavailable = useCallback(() => {
+    setTestStatus("idle");
+  }, []);
 
   const tabs = useMemo(() => {
     const list: { id: TabId; label: string }[] = [
@@ -175,9 +189,9 @@ export default function BottomPanel({
           {state.bottomPanel.active === "tests" && hasTestFiles && (
             <TestsPanel
               showDetails={showTestDetails}
-              onComplete={() => {
-                queueMicrotask(() => setTestStatus("complete"));
-              }}
+              runRequest={runRequest}
+              onComplete={handleTestsComplete}
+              onRunUnavailable={handleTestRunUnavailable}
             />
           )}
         </div>
@@ -309,20 +323,79 @@ function BundledConsole() {
 
 function TestsPanel({
   showDetails,
+  runRequest,
   onComplete,
+  onRunUnavailable,
 }: {
   showDetails: boolean;
+  runRequest: number;
   onComplete: () => void;
+  onRunUnavailable: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (runRequest === 0) return;
+
+    let didRun = false;
+    let timeoutId: number | undefined;
+
+    const runFromSandpackClient = () => {
+      const runButton = rootRef.current?.querySelector<HTMLButtonElement>(
+        'button[title="Run tests"]',
+      );
+      if (!runButton || runButton.disabled) return false;
+
+      didRun = true;
+      runButton.click();
+      return true;
+    };
+
+    if (runFromSandpackClient()) return;
+
+    const root = rootRef.current;
+    if (!root) {
+      onRunUnavailable();
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      if (runFromSandpackClient()) observer.disconnect();
+    });
+
+    observer.observe(root, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ["disabled"],
+    });
+
+    timeoutId = window.setTimeout(() => {
+      observer.disconnect();
+      if (!didRun) onRunUnavailable();
+    }, 5000);
+
+    return () => {
+      observer.disconnect();
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [onRunUnavailable, runRequest]);
+
   return (
-    <SandpackTests
-      verbose
-      watchMode
-      showVerboseButton={false}
-      onComplete={onComplete}
-      style={{ height: "100%", width: "100%", overflow: "auto" }}
-      className={showDetails ? "show-test-details" : "hide-test-details"}
-    />
+    <div ref={rootRef} className="h-full">
+      <SandpackTests
+        verbose
+        watchMode={false}
+        showVerboseButton={false}
+        showWatchButton={false}
+        onComplete={onComplete}
+        style={{ height: "100%", width: "100%", overflow: "auto" }}
+        className={cn(
+          "tutly-tests-panel",
+          showDetails ? "show-test-details" : "hide-test-details",
+        )}
+      />
+    </div>
   );
 }
 

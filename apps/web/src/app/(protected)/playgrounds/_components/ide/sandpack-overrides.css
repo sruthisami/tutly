@@ -11,6 +11,12 @@
   display: block !important;
 }
 
+/* Tutly owns the visible Run Tests button. Keep Sandpack's internal run
+   control mounted so test commands still go through its own client. */
+.tutly-tests-panel > .sp-preview-actions {
+  display: none !important;
+}
+
 /* Make the Sandpack-rendered Watch button blend with our toolbar. */
 .sp-tests .sp-button {
   border-radius: 6px;
