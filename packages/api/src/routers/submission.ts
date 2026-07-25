@@ -15,6 +15,10 @@ import {
   readSubmission,
   writeSubmission,
 } from "@tutly/storage";
+import {
+  isCodeSandboxHost,
+  isValidCodeSandboxUrl,
+} from "@tutly/utils/codesandbox";
 
 import { locatorFrom, locatorSelect } from "../lib/storage-locator";
 import {
@@ -566,7 +570,21 @@ export const submissionRouter = createTRPCRouter({
       z.object({
         assignmentId: z.string(),
         maxSubmissions: z.number(),
-        externalLink: z.string(),
+        externalLink: z
+          .string()
+          .url()
+          .max(2048)
+          .refine(
+            (link) => {
+              try {
+                if (!isCodeSandboxHost(new URL(link).hostname)) return true;
+              } catch {
+                return false;
+              }
+              return isValidCodeSandboxUrl(link);
+            },
+            { message: "Invalid CodeSandbox URL" },
+          ),
         courseId: z.string(),
       }),
     )
@@ -584,7 +602,10 @@ export const submissionRouter = createTRPCRouter({
       });
 
       if (submissions.length >= input.maxSubmissions) {
-        return { error: "Maximum submission limit reached" };
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Maximum submission limit reached",
+        });
       }
 
       const mentorDetails = await ctx.db.enrolledUsers.findFirst({
@@ -602,7 +623,10 @@ export const submissionRouter = createTRPCRouter({
       });
 
       if (!mentorDetails) {
-        return { error: "Mentor not found" };
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Mentor not found",
+        });
       }
 
       const mentorUsername = mentorDetails.mentor?.username ?? "";
@@ -618,7 +642,10 @@ export const submissionRouter = createTRPCRouter({
       });
 
       if (!enrolledUser) {
-        return { error: "User not enrolled in the course" };
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not enrolled in this course",
+        });
       }
 
       await ctx.db.submission.create({
