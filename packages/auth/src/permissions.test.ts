@@ -167,7 +167,6 @@ describe("statement", () => {
       expect(statement.user).toContain(action);
     }
   });
-
   it("declares no duplicate actions within a resource", () => {
     for (const [resource, actions] of Object.entries(statement)) {
       expect(new Set(actions).size, resource).toBe(actions.length);
@@ -237,7 +236,6 @@ describe("hasPermission", () => {
     expect(hasPermission("GUEST" as unknown as RoleName, request)).toBe(false);
     expect(hasPermission("" as unknown as RoleName, request)).toBe(false);
   });
-
   it("denies an unknown action on a known resource", () => {
     expect(
       hasPermission("SUPER_ADMIN", {
